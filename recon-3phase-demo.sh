@@ -424,19 +424,14 @@ run_phase3() {
     
     # nuclei
     if [ "$PHASE3_NUCLEI" = true ]; then
-        log_info "Running nuclei with templates: $PHASE3_NUCLEI_TEMPLATES..."
+        log_info "Running nuclei with top 10 templates from GitHub..."
         (
-            echo "Executing: nuclei -l $PHASE3_URLS -t $PHASE3_NUCLEI_TEMPLATES -silent" >> "$phase3_log"
-            # Check if template path exists, otherwise skip nuclei
-            if [ -d "$PHASE3_NUCLEI_TEMPLATES" ] || [ -f "$PHASE3_NUCLEI_TEMPLATES" ]; then
-                nuclei -l "$PHASE3_URLS" -t "$PHASE3_NUCLEI_TEMPLATES" -silent -o "${RESULTS_DIR}/phase3_nuclei_results.txt" 2>&1 | tee -a "$phase3_log" || true
-            else
-                log_warning "Nuclei templates not found at: $PHASE3_NUCLEI_TEMPLATES (skipping nuclei)"
-                echo "Nuclei templates not found at: $PHASE3_NUCLEI_TEMPLATES" >> "$phase3_log"
-            fi
+            echo "Executing: nuclei -l $PHASE3_URLS -t cves,vulnerabilities,exposed-panels,misconfiguration,default-logins,takeovers,technologies,fuzzing,ssl,http -silent" >> "$phase3_log"
+            # Use nuclei's built-in template categories (top 10 most common)
+            nuclei -l "$PHASE3_URLS" -t cves,vulnerabilities,exposed-panels,misconfiguration,default-logins,takeovers,technologies,fuzzing,ssl,http -silent -o "${RESULTS_DIR}/phase3_nuclei_results.txt" 2>&1 | tee -a "$phase3_log" || true
+            TOOL_COMMANDS["nuclei"]="nuclei -l ${PHASE3_URLS} -t cves,vulnerabilities,exposed-panels,misconfiguration,default-logins,takeovers,technologies,fuzzing,ssl,http -silent"
         ) &
         pid=$!
-        TOOL_COMMANDS["nuclei"]="nuclei -l ${PHASE3_URLS} -t ${PHASE3_NUCLEI_TEMPLATES} -silent"
         EXECUTED_TOOLS+=("nuclei")
         wait $pid
         TOOL_STATUS["nuclei"]="success"
