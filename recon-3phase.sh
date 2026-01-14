@@ -444,14 +444,20 @@ run_phase3() {
     if [ "$PHASE3_NUCLEI" = true ]; then
         log_info "Running nuclei with templates: $PHASE3_NUCLEI_TEMPLATES..."
         (
-            nuclei -l "$PHASE3_URLS" -t "$PHASE3_NUCLEI_TEMPLATES" -silent -o "${RESULTS_DIR}/phase3_nuclei_results.txt" 2>&1 | tee -a "$phase3_log"
+            # Check if template path exists, otherwise skip nuclei
+            if [ -d "$PHASE3_NUCLEI_TEMPLATES" ] || [ -f "$PHASE3_NUCLEI_TEMPLATES" ]; then
+                nuclei -l "$PHASE3_URLS" -t "$PHASE3_NUCLEI_TEMPLATES" -silent -o "${RESULTS_DIR}/phase3_nuclei_results.txt" 2>&1 | tee -a "$phase3_log"
+            else
+                log_warning "Nuclei templates not found at: $PHASE3_NUCLEI_TEMPLATES (skipping nuclei)"
+                echo "Nuclei templates not found at: $PHASE3_NUCLEI_TEMPLATES" >> "$phase3_log"
+            fi
         ) &
         TOOL_PIDS["nuclei"]=$!
         TOOL_COMMANDS["nuclei"]="nuclei -l ${PHASE3_URLS} -t ${PHASE3_NUCLEI_TEMPLATES} -silent"
         EXECUTED_TOOLS+=("nuclei")
-        
-        wait_for_phase "Phase 3" "nuclei"
     fi
+    
+    wait_for_phase "Phase 3" "nuclei"
     
     log_success "Phase 3 completed"
 }

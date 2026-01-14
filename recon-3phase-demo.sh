@@ -45,6 +45,10 @@ log_error() {
     echo -e "${RED}[✗]${NC} $1"
 }
 
+log_warning() {
+    echo -e "${YELLOW}[!]${NC} $1"
+}
+
 check_for_resume() {
     local latest_run=$(ls -td recon_* 2>/dev/null | head -1)
     
@@ -423,7 +427,13 @@ run_phase3() {
         log_info "Running nuclei with templates: $PHASE3_NUCLEI_TEMPLATES..."
         (
             echo "Executing: nuclei -l $PHASE3_URLS -t $PHASE3_NUCLEI_TEMPLATES -silent" >> "$phase3_log"
-            nuclei -l "$PHASE3_URLS" -t "$PHASE3_NUCLEI_TEMPLATES" -silent -o "${RESULTS_DIR}/phase3_nuclei_results.txt" 2>&1 | tee -a "$phase3_log" || true
+            # Check if template path exists, otherwise skip nuclei
+            if [ -d "$PHASE3_NUCLEI_TEMPLATES" ] || [ -f "$PHASE3_NUCLEI_TEMPLATES" ]; then
+                nuclei -l "$PHASE3_URLS" -t "$PHASE3_NUCLEI_TEMPLATES" -silent -o "${RESULTS_DIR}/phase3_nuclei_results.txt" 2>&1 | tee -a "$phase3_log" || true
+            else
+                log_warning "Nuclei templates not found at: $PHASE3_NUCLEI_TEMPLATES (skipping nuclei)"
+                echo "Nuclei templates not found at: $PHASE3_NUCLEI_TEMPLATES" >> "$phase3_log"
+            fi
         ) &
         pid=$!
         TOOL_COMMANDS["nuclei"]="nuclei -l ${PHASE3_URLS} -t ${PHASE3_NUCLEI_TEMPLATES} -silent"
