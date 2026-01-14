@@ -49,11 +49,13 @@ check_for_resume() {
     local latest_run=$(ls -td recon_* 2>/dev/null | head -1)
     
     if [ -z "$latest_run" ]; then
-        return 1
+        RESUME_PHASE=0
+        return
     fi
     
     if [ ! -d "$latest_run/results" ]; then
-        return 1
+        RESUME_PHASE=0
+        return
     fi
     
     local phase1_done=false
@@ -80,17 +82,27 @@ check_for_resume() {
             LOGS_DIR="${WORK_DIR}/logs"
             REPORT_FILE="${WORK_DIR}/report.html"
             
+            # Determine which phase to resume from
             if [ "$phase1_done" = true ] && [ "$phase2_done" = false ]; then
-                log_success "Resuming from Phase 2"
-                return 2
+                # Check which Phase 2 tools completed
+                local last_tool=$(grep "^Executing:" "$LOGS_DIR/phase2.log" 2>/dev/null | tail -1 | sed 's/Executing: //')
+                log_success "Resuming Phase 2 from last incomplete tool"
+                log_info "Last executed: $last_tool"
+                RESUME_PHASE=2
+                return
             elif [ "$phase2_done" = true ] && [ "$phase3_done" = false ]; then
                 log_success "Resuming from Phase 3"
-                return 3
+                RESUME_PHASE=3
+                return
+            elif [ "$phase3_done" = false ]; then
+                log_success "Resuming from Phase 2"
+                RESUME_PHASE=2
+                return
             fi
         fi
     fi
     
-    return 1
+    RESUME_PHASE=0
 }
 
 setup_directories() {
@@ -260,10 +272,26 @@ run_phase2() {
     fi
     
     local phase2_log="${LOGS_DIR}/phase2.log"
-    > "$phase2_log"
+    
+    # In resume mode, append to existing log; otherwise create new
+    if [ "$RESUME_MODE" = false ]; then
+        > "$phase2_log"
+    fi
+    
+    # Determine which tools to run based on resume status
+    local skip_naabu=false
+    local skip_httpx=false
+    local skip_httprobe=false
+    
+    if [ "$RESUME_MODE" = true ] && [ -f "$phase2_log" ]; then
+        # Check which tools already completed
+        grep -q "^Executing: naabu" "$phase2_log" && skip_naabu=true
+        grep -q "^Executing: httpx" "$phase2_log" && skip_httpx=true
+        grep -q "^Executing: cat.*httprobe" "$phase2_log" && skip_httprobe=true
+    fi
     
     # naabu
-    if [ "$PHASE2_NAABU" = true ]; then
+    if [ "$PHASE2_NAABU" = true ] && [ "$skip_naabu" = false ]; then
         log_info "Running naabu on hosts..."
         (
             echo "Executing: naabu -l $PHASE2_HOSTS -p - -c 50 -silent" >> "$phase2_log"
@@ -275,10 +303,13 @@ run_phase2() {
         wait $pid
         TOOL_STATUS["naabu"]="success"
         log_success "naabu completed"
+    elif [ "$skip_naabu" = true ]; then
+        log_info "Skipping naabu (already completed)"
+        TOOL_STATUS["naabu"]="success"
     fi
     
     # httpx
-    if [ "$PHASE2_HTTPX" = true ]; then
+    if [ "$PHASE2_HTTPX" = true ] && [ "$skip_httpx" = false ]; then
         log_info "Running httpx on hosts..."
         (
             echo "Executing: httpx -l $PHASE2_HOSTS -silent -title -status-code" >> "$phase2_log"
@@ -290,10 +321,13 @@ run_phase2() {
         wait $pid
         TOOL_STATUS["httpx"]="success"
         log_success "httpx completed"
+    elif [ "$skip_httpx" = true ]; then
+        log_info "Skipping httpx (already completed)"
+        TOOL_STATUS["httpx"]="success"
     fi
     
     # httprobe
-    if [ "$PHASE2_HTTPROBE" = true ]; then
+    if [ "$PHASE2_HTTPROBE" = true ] && [ "$skip_httprobe" = false ]; then
         log_info "Running httprobe on hosts..."
         (
             echo "Executing: cat $PHASE2_HOSTS | httprobe -c 50" >> "$phase2_log"
@@ -305,6 +339,9 @@ run_phase2() {
         wait $pid
         TOOL_STATUS["httprobe"]="success"
         log_success "httprobe completed"
+    elif [ "$skip_httprobe" = true ]; then
+        log_info "Skipping httprobe (already completed)"
+        TOOL_STATUS["httprobe"]="success"
     fi
     
     log_success "Phase 2 completed"
@@ -352,11 +389,11 @@ run_phase3() {
     if [ "$PHASE3_KATANA" = true ]; then
         log_info "Running katana with depth $PHASE3_KATANA_DEPTH..."
         (
-            echo "Executing: katana -l $PHASE3_URLS -d $PHASE3_KATANA_DEPTH -silent" >> "$phase3_log"
-            katana -l "$PHASE3_URLS" -d "$PHASE3_KATANA_DEPTH" -silent -o "${RESULTS_DIR}/phase3_katana_urls.txt" 2>&1 | tee -a "$phase3_log" || true
+            echo "Executing: cat $PHASE3_URLS | katana -d $PHASE3_KATANA_DEPTH -silent" >> "$phase3_log"
+            cat "$PHASE3_URLS" | katana -d "$PHASE3_KATANA_DEPTH" -silent -o "${RESULTS_DIR}/phase3_katana_urls.txt" 2>&1 | tee -a "$phase3_log" || true
         ) &
         local pid=$!
-        TOOL_COMMANDS["katana"]="katana -l ${PHASE3_URLS} -d ${PHASE3_KATANA_DEPTH} -silent"
+        TOOL_COMMANDS["katana"]="cat ${PHASE3_URLS} | katana -d ${PHASE3_KATANA_DEPTH} -silent"
         EXECUTED_TOOLS+=("katana")
         wait $pid
         TOOL_STATUS["katana"]="success"
@@ -737,11 +774,10 @@ EOF
     echo -e "${NC}"
     
     # Check for resume opportunity
-    local resume_phase=0
+    RESUME_PHASE=0
     check_for_resume
-    resume_phase=$?
     
-    if [ $resume_phase -eq 0 ]; then
+    if [ $RESUME_PHASE -eq 0 ]; then
         # New run
         setup_directories
         
@@ -756,18 +792,32 @@ EOF
         # Phase 3
         phase3_collect_params
         run_phase3
-    elif [ $resume_phase -eq 2 ]; then
+    elif [ $RESUME_PHASE -eq 2 ]; then
         # Resume from Phase 2
         log_info "Using existing Phase 1 results from $WORK_DIR"
         
-        # Phase 2
-        phase2_collect_params
+        # Phase 2 - reuse parameters from previous run
+        PHASE2_HOSTS="${RESULTS_DIR}/phase1_resolved.txt"
+        PHASE2_NAABU=true
+        PHASE2_HTTPX=true
+        PHASE2_HTTPROBE=true
         run_phase2
         
-        # Phase 3
-        phase3_collect_params
+        # Phase 3 - auto-detect URLs from Phase 2 results
+        if [ -f "${RESULTS_DIR}/phase2_httpx.txt" ]; then
+            PHASE3_URLS="${RESULTS_DIR}/phase2_httpx.txt"
+        elif [ -f "${RESULTS_DIR}/phase2_httprobe.txt" ]; then
+            PHASE3_URLS="${RESULTS_DIR}/phase2_httprobe.txt"
+        else
+            phase3_collect_params
+        fi
+        PHASE3_KATANA=true
+        PHASE3_KATANA_DEPTH=2
+        PHASE3_GF=true
+        PHASE3_NUCLEI=true
+        PHASE3_NUCLEI_TEMPLATES="cves/"
         run_phase3
-    elif [ $resume_phase -eq 3 ]; then
+    elif [ $RESUME_PHASE -eq 3 ]; then
         # Resume from Phase 3
         log_info "Using existing Phase 1 & 2 results from $WORK_DIR"
         

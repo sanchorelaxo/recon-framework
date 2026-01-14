@@ -1,0 +1,4 @@
+Executing: katana -l recon_20260114_123354/results/phase2_httprobe.txt -d 2 -silent
+flag provided but not defined: -l
+Executing: nuclei -l recon_20260114_123354/results/phase2_httprobe.txt -t cves/ -silent
+[[1;31mFTL[0m] Could not run nuclei: no templates provided for scan
