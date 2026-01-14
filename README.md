@@ -70,6 +70,7 @@ export PATH="$HOME/go/bin:$PATH"
 ```bash
 firefox recon_20260114_115700/report.html
 ```
+![html report](report.jpeg)
 
 ## Output Structure
 
