@@ -19,6 +19,8 @@ WORK_DIR="recon_${TIMESTAMP}"
 RESULTS_DIR="${WORK_DIR}/results"
 LOGS_DIR="${WORK_DIR}/logs"
 REPORT_FILE="${WORK_DIR}/report.html"
+RESUME_DIR=""
+RESUME_MODE=false
 
 # Tool tracking
 declare -A TOOL_COMMANDS
@@ -41,6 +43,54 @@ log_success() {
 
 log_error() {
     echo -e "${RED}[✗]${NC} $1"
+}
+
+check_for_resume() {
+    local latest_run=$(ls -td recon_* 2>/dev/null | head -1)
+    
+    if [ -z "$latest_run" ]; then
+        return 1
+    fi
+    
+    if [ ! -d "$latest_run/results" ]; then
+        return 1
+    fi
+    
+    local phase1_done=false
+    local phase2_done=false
+    local phase3_done=false
+    
+    [ -f "$latest_run/results/phase1_resolved.txt" ] && phase1_done=true
+    [ -f "$latest_run/results/phase2_httpx.txt" ] && phase2_done=true
+    [ -f "$latest_run/results/phase3_nuclei_results.txt" ] && phase3_done=true
+    
+    if [ "$phase1_done" = true ] || [ "$phase2_done" = true ] || [ "$phase3_done" = true ]; then
+        echo ""
+        echo -e "${YELLOW}Found incomplete reconnaissance run:${NC} $latest_run"
+        echo "  Phase 1 (Surface Maximization): $([ "$phase1_done" = true ] && echo '✓ Done' || echo '✗ Incomplete')"
+        echo "  Phase 2 (Port & Service): $([ "$phase2_done" = true ] && echo '✓ Done' || echo '✗ Incomplete')"
+        echo "  Phase 3 (Parameter Mining): $([ "$phase3_done" = true ] && echo '✓ Done' || echo '✗ Incomplete')"
+        echo ""
+        
+        if prompt_yes_no "Resume from this run?"; then
+            RESUME_DIR="$latest_run"
+            RESUME_MODE=true
+            WORK_DIR="$latest_run"
+            RESULTS_DIR="${WORK_DIR}/results"
+            LOGS_DIR="${WORK_DIR}/logs"
+            REPORT_FILE="${WORK_DIR}/report.html"
+            
+            if [ "$phase1_done" = true ] && [ "$phase2_done" = false ]; then
+                log_success "Resuming from Phase 2"
+                return 2
+            elif [ "$phase2_done" = true ] && [ "$phase3_done" = false ]; then
+                log_success "Resuming from Phase 3"
+                return 3
+            fi
+        fi
+    fi
+    
+    return 1
 }
 
 setup_directories() {
@@ -216,11 +266,11 @@ run_phase2() {
     if [ "$PHASE2_NAABU" = true ]; then
         log_info "Running naabu on hosts..."
         (
-            echo "Executing: naabu -l $PHASE2_HOSTS -p - -silent" >> "$phase2_log"
-            naabu -l "$PHASE2_HOSTS" -p - -silent -o "${RESULTS_DIR}/phase2_naabu_ports.txt" 2>&1 | tee -a "$phase2_log" || true
+            echo "Executing: naabu -l $PHASE2_HOSTS -p - -c 50 -silent" >> "$phase2_log"
+            naabu -l "$PHASE2_HOSTS" -p - -c 50 -silent -o "${RESULTS_DIR}/phase2_naabu_ports.txt" 2>&1 | tee -a "$phase2_log" || true
         ) &
         local pid=$!
-        TOOL_COMMANDS["naabu"]="naabu -l ${PHASE2_HOSTS} -p - -silent"
+        TOOL_COMMANDS["naabu"]="naabu -l ${PHASE2_HOSTS} -p - -c 50 -silent"
         EXECUTED_TOOLS+=("naabu")
         wait $pid
         TOOL_STATUS["naabu"]="success"
@@ -686,19 +736,45 @@ main() {
 EOF
     echo -e "${NC}"
     
-    setup_directories
+    # Check for resume opportunity
+    local resume_phase=0
+    check_for_resume
+    resume_phase=$?
     
-    # Phase 1
-    phase1_collect_params
-    run_phase1
-    
-    # Phase 2
-    phase2_collect_params
-    run_phase2
-    
-    # Phase 3
-    phase3_collect_params
-    run_phase3
+    if [ $resume_phase -eq 0 ]; then
+        # New run
+        setup_directories
+        
+        # Phase 1
+        phase1_collect_params
+        run_phase1
+        
+        # Phase 2
+        phase2_collect_params
+        run_phase2
+        
+        # Phase 3
+        phase3_collect_params
+        run_phase3
+    elif [ $resume_phase -eq 2 ]; then
+        # Resume from Phase 2
+        log_info "Using existing Phase 1 results from $WORK_DIR"
+        
+        # Phase 2
+        phase2_collect_params
+        run_phase2
+        
+        # Phase 3
+        phase3_collect_params
+        run_phase3
+    elif [ $resume_phase -eq 3 ]; then
+        # Resume from Phase 3
+        log_info "Using existing Phase 1 & 2 results from $WORK_DIR"
+        
+        # Phase 3
+        phase3_collect_params
+        run_phase3
+    fi
     
     # Generate report
     generate_html_report

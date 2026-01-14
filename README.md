@@ -2,6 +2,8 @@
 
 Complete automated reconnaissance framework implementing the Web Recon 2025 workflow with three phases, interactive parameter collection, parallel execution, and professional HTML reporting with Mermaid diagrams.
 
+![Web Recon 2025 workflow](web_recon_2025.jpeg)
+
 ## Quick Start
 
 ```bash
@@ -104,10 +106,5 @@ For issues:
 3. Review documentation in this directory
 4. Check individual tool documentation (links in README_3PHASE_RECON.md)
 
-## Location
-
-```
-~/Documents/git/recon-framework/
-```
-
-All scripts and documentation are in this directory and ready to use.
+## Credit
+prompt formulated from a tweet by [Deedy Das](https://x.com/deedydas/status/2011349400778653879)
