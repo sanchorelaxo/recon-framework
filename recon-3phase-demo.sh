@@ -482,6 +482,9 @@ generate_html_report() {
     done
     local result_files=$(find "$RESULTS_DIR" -type f 2>/dev/null | wc -l)
     
+    # Ensure report file directory exists
+    mkdir -p "$(dirname "$REPORT_FILE")"
+    
     cat > "$REPORT_FILE" << 'HTMLEOF'
 <!DOCTYPE html>
 <html lang="en">

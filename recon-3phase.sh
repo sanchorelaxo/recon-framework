@@ -512,6 +512,9 @@ generate_mermaid_diagram() {
 generate_html_report() {
     log_info "Generating HTML report..."
     
+    # Ensure report file directory exists
+    mkdir -p "$(dirname "$REPORT_FILE")"
+    
     cat > "$REPORT_FILE" << 'EOF'
 <!DOCTYPE html>
 <html lang="en">
